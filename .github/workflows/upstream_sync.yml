@@ -1,0 +1,69 @@
+name: 'Upstream Sync'
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron:  '15 */6 * * *'
+
+  workflow_dispatch:  # click the button on Github repo!
+    inputs:
+      sync_test_mode: # Adds a boolean option that appears during manual workflow run for easy test mode config
+        description: 'Fork Sync Test Mode'
+        type: boolean
+        default: false
+
+jobs:
+  sync_main:
+    name: Sync latest commits from upstream repo
+    runs-on: ubuntu-latest
+    if: ${{ github.event.repository.fork }}
+    strategy:
+      matrix:
+        branch: ['master']
+
+    steps:
+    # REQUIRED step
+    # Step 1: run a standard checkout action, provided by github
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          # optional: set the branch to checkout,
+          # sync action checks out your 'target_sync_branch' anyway
+          ref:  ${{ matrix.branch }}
+          # REQUIRED if your upstream repo is private (see wiki)
+          persist-credentials: false
+
+    # REQUIRED step
+    # Step 2: run the sync action
+      - name: Sync upstream changes
+        id: sync
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.1
+        with:
+          target_sync_branch: ${{ matrix.branch }}
+          # REQUIRED 'target_repo_token' exactly like this!
+          target_repo_token: ${{ secrets.GH_TOKEN }}
+          upstream_sync_branch: ${{ matrix.branch }}
+          upstream_sync_repo: tgbot-collection/ytdlbot
+          # upstream_repo_access_token: ${{ secrets.UPSTREAM_REPO_SECRET }}
+  
+          # Set test_mode true during manual dispatch to run tests instead of the true action!!
+          test_mode: ${{ inputs.sync_test_mode }}
+      
+    # Step 3: Display a sample message based on the sync output var 'has_new_commits'
+      - name: Sync check
+        if: failure()
+        run: |
+          echo "[Error] Due to a change in the workflow file of the upstream repository, GitHub has automatically suspended the scheduled automatic update. You need to manually sync your fork. Please refer to the detailed tutorial for instructions: https://github.com/Yidadaa/ChatGPT-Next-Web#enable-automatic-updates"
+          exit 1
+      - name: New commits found
+        if: steps.sync.outputs.has_new_commits == 'true'
+        run: echo "New commits were found to sync."
+      
+      - name: No new commits
+        if: steps.sync.outputs.has_new_commits == 'false'
+        run: echo "There were no new commits."
+        
+      - name: Show value of 'has_new_commits'
+        run: echo ${{ steps.sync.outputs.has_new_commits }}
